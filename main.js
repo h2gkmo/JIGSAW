@@ -2,6 +2,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.m
 import * as turf from 'https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/+esm';
 
 const scene = new THREE.Scene();
+const oceanAudio = new Audio('wave.m4a');
+oceanAudio.loop = true;
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.z = 15;  // Zoomed out a bit
 
@@ -155,8 +157,16 @@ window.addEventListener('click', (event) => {
 
       // Add new country mesh
       currentCountryMesh = addCountryMeshToScene(country);
+
+       // ✅ Stop ocean sound when land is clicked
+      oceanAudio.pause();
+      oceanAudio.currentTime = 0;
     } else {
       console.log('Clicked ocean or no country found');
+      
+      // Play wave.m4a sound
+      if (oceanAudio.paused) {
+        oceanAudio.play();}
     }
   }
 });
