@@ -4,9 +4,9 @@ import * as turf from 'https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/+esm';
 const scene = new THREE.Scene();
 const oceanAudio = new Audio('wave.m4a');
 oceanAudio.loop = true;
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.z = 15;  // Zoomed out a bit
 
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.z = 15;
 
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -35,96 +35,112 @@ fetch('data/countries.geojson')
 
 function uvToLatLon(uv) {
   const lon = uv.x * 360 - 180;
-  const lat = uv.y * 180 - 90;  // flip Y here
+  const lat = uv.y * 180 - 90;
   return { lat, lon };
 }
 
+let currentCountryMesh = null;
+let currentCountryLabel = null;
 
-window.addEventListener('click', (event) => {
-  if (!countriesGeoJSON) return; // Wait until geojson is loaded
-
-  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-  raycaster.setFromCamera(mouse, camera);
-  const intersects = raycaster.intersectObject(globe);
-
-  if (intersects.length > 0) {
-    const uv = intersects[0].uv;
-    const { lat, lon } = uvToLatLon(uv);
-
-    const point = turf.point([lon, lat]);
-    const country = countriesGeoJSON.features.find(feature =>
-      turf.booleanPointInPolygon(point, feature)
-    );
-
-    if (country) {
-      console.log('Clicked country:', country.properties.ADMIN || country.properties.name);
-      // TODO: Expand and show the country map here
-    } else {
-      console.log('Clicked ocean or no country found');
-    }
-  }
-});
-
-function animate() {
-  requestAnimationFrame(animate);
-  globe.rotation.y += 0.0015;
-  renderer.render(scene, camera);
+function getRandomPastelColor() {
+  const r = Math.floor(150 + Math.random() * 105);
+  const g = Math.floor(150 + Math.random() * 105);
+  const b = Math.floor(150 + Math.random() * 105);
+  return (r << 16) + (g << 8) + b;
 }
 
-animate();
 function projectLonLatToXY(lon, lat) {
-  // Simple equirectangular projection (X: lon, Y: lat)
-  // You can scale it later for display
   return new THREE.Vector2(lon, lat);
 }
-function createShapeFromGeoJSON(feature) {
-  const shape = new THREE.Shape();
 
-  // GeoJSON polygons can be MultiPolygon or Polygon
-  const polygons = feature.geometry.type === 'MultiPolygon' ?
-    feature.geometry.coordinates : [feature.geometry.coordinates];
+// Fixed scale for all countries
+const FIXED_COUNTRY_SCALE = 0.3;
+
+// Create a country shape centered around its centroid
+function addCountryMeshToScene(feature) {
+  const shape = new THREE.Shape();
+  const polygons = feature.geometry.type === 'MultiPolygon' ? feature.geometry.coordinates : [feature.geometry.coordinates];
+
+  // Compute bounding box to find centroid
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  polygons.forEach(polygon => {
+    polygon.forEach(ring => {
+      ring.forEach(([lon, lat]) => {
+        minX = Math.min(minX, lon);
+        maxX = Math.max(maxX, lon);
+        minY = Math.min(minY, lat);
+        maxY = Math.max(maxY, lat);
+      });
+    });
+  });
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
 
   polygons.forEach(polygon => {
     polygon.forEach((ring, ringIndex) => {
-      // ring is an array of [lon, lat]
       ring.forEach(([lon, lat], i) => {
-        const point = projectLonLatToXY(lon, lat);
-        if (i === 0 && ringIndex === 0) {
-          shape.moveTo(point.x, point.y);
-        } else {
-          shape.lineTo(point.x, point.y);
-        }
+        const x = lon - centerX;
+        const y = lat - centerY;
+        if (i === 0 && ringIndex === 0) shape.moveTo(x, y);
+        else shape.lineTo(x, y);
       });
-      // Close the ring shape automatically
     });
   });
 
-  return shape;
-}
-function addCountryMeshToScene(feature) {
-  const shape = createShapeFromGeoJSON(feature);
-
-  // Extrude or flat shape geometry
   const geometry = new THREE.ShapeGeometry(shape);
-
-  // Simple color for country fill
-  const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
+  const material = new THREE.MeshBasicMaterial({
+    color: getRandomPastelColor(),
+    side: THREE.DoubleSide
+  });
 
   const mesh = new THREE.Mesh(geometry, material);
+  mesh.scale.set(FIXED_COUNTRY_SCALE, FIXED_COUNTRY_SCALE, FIXED_COUNTRY_SCALE);
 
-  // Scale up for better visibility (since lon/lat range is small)
-  mesh.scale.set(0.05, 0.05, 0.05);
-
-  // Position in front of camera, e.g. z = 5
-  mesh.position.set(0, 0, 5);
-
+  // Fixed position for all countries (right side, not rotating)
+  mesh.position.set(8, 0, 0);
   scene.add(mesh);
-
   return mesh;
 }
-let currentCountryMesh = null;
+
+function createCountryLabel(name) {
+  const canvas = document.createElement('canvas');
+  const size = 512;
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = 'white';
+  ctx.font = '40px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+
+  const words = name.split(' ');
+  const lines = [];
+  let currentLine = '';
+  words.forEach(word => {
+    if ((currentLine + ' ' + word).length > 15) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = currentLine ? currentLine + ' ' + word : word;
+    }
+  });
+  if (currentLine) lines.push(currentLine);
+
+  lines.forEach((line, i) => {
+    ctx.fillText(line, size / 2, size / 2 + i * 45);
+  });
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+  const sprite = new THREE.Sprite(material);
+
+  // Fixed size and position under country
+  sprite.scale.set(6, 3, 1);
+  sprite.position.set(8, -2.5, 0);
+  scene.add(sprite);
+  return sprite;
+}
 
 window.addEventListener('click', (event) => {
   if (!countriesGeoJSON) return;
@@ -138,35 +154,51 @@ window.addEventListener('click', (event) => {
   if (intersects.length > 0) {
     const uv = intersects[0].uv;
     const { lat, lon } = uvToLatLon(uv);
-
     const point = turf.point([lon, lat]);
+
     const country = countriesGeoJSON.features.find(feature =>
       turf.booleanPointInPolygon(point, feature)
     );
 
     if (country) {
-      console.log('Clicked country:', country.properties.ADMIN || country.properties.name);
+      oceanAudio.pause();
+      oceanAudio.currentTime = 0;
 
-      // Remove old country mesh if exists
       if (currentCountryMesh) {
         scene.remove(currentCountryMesh);
         currentCountryMesh.geometry.dispose();
         currentCountryMesh.material.dispose();
         currentCountryMesh = null;
       }
+      if (currentCountryLabel) {
+        scene.remove(currentCountryLabel);
+        currentCountryLabel.material.map.dispose();
+        currentCountryLabel.material.dispose();
+        currentCountryLabel = null;
+      }
 
-      // Add new country mesh
       currentCountryMesh = addCountryMeshToScene(country);
+      currentCountryLabel = createCountryLabel(country.properties.ADMIN || country.properties.name);
 
-       // ✅ Stop ocean sound when land is clicked
-      oceanAudio.pause();
-      oceanAudio.currentTime = 0;
+      const countryName = country.properties.ADMIN || country.properties.name;
+      const url = `https://www.google.com/maps/search/${encodeURIComponent(countryName)}`;
+      window.open(url, "_blank", "width=600,height=400");
     } else {
-      console.log('Clicked ocean or no country found');
-      
-      // Play wave.m4a sound
-      if (oceanAudio.paused) {
-        oceanAudio.play();}
+      if (oceanAudio.paused) oceanAudio.play();
     }
   }
 });
+
+function animate() {
+  requestAnimationFrame(animate);
+  globe.rotation.y += 0.0015;
+
+  // Keep label facing camera
+  if (currentCountryLabel) {
+    currentCountryLabel.lookAt(camera.position);
+  }
+
+  renderer.render(scene, camera);
+}
+
+animate();
