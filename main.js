@@ -41,6 +41,7 @@ function uvToLatLon(uv) {
 
 let currentCountryMesh = null;
 let currentCountryLabel = null;
+let playNowButton = null;
 
 function getRandomPastelColor() {
   const r = Math.floor(150 + Math.random() * 105);
@@ -142,16 +143,67 @@ function createCountryLabel(name) {
   return sprite;
 }
 
+// === PLAY NOW BUTTON ===
+function createPlayNowButton() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+
+  // Glow
+  ctx.shadowColor = 'rgba(255,255,180,0.8)';
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = '#ffd700';
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 4;
+  ctx.roundRect(20, 40, 216, 50, 15);
+  ctx.fill();
+  ctx.stroke();
+
+  // Text
+  ctx.fillStyle = 'black';
+  ctx.font = 'bold 28px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('PLAY NOW', 128, 65);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+  const button = new THREE.Sprite(material);
+  button.scale.set(4, 2, 1);
+  button.position.set(8, 2.5, 0);
+  button.name = "playNowButton";
+  scene.add(button);
+  return button;
+}
+
+// === INTERACTION ===
 window.addEventListener('click', (event) => {
   if (!countriesGeoJSON) return;
 
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
   raycaster.setFromCamera(mouse, camera);
-  const intersects = raycaster.intersectObject(globe);
 
-  if (intersects.length > 0) {
+  // Only check for globe and playNowButton if it exists
+  const objectsToCheck = [globe];
+  if (playNowButton) objectsToCheck.push(playNowButton);
+
+  const intersects = raycaster.intersectObjects(objectsToCheck.filter(Boolean));
+  if (intersects.length === 0) return;
+
+  const clickedObj = intersects[0].object;
+
+  // If Play Now button clicked
+  if (clickedObj.name === "playNowButton") {
+    const popup = window.open("", "popup", "width=400,height=500,left=0,top=100");
+    popup.document.write("<h2 style='font-family:Arial;text-align:center;color:#333;'>WELCOME TO THE GAME</h2>");
+    popup.document.write("<p style='padding:20px;font-size:16px;'>Let's fix the country map together!</p>");
+    return;
+  }
+
+  // If globe clicked
+  if (clickedObj === globe && intersects[0].uv) {
     const uv = intersects[0].uv;
     const { lat, lon } = uvToLatLon(uv);
     const point = turf.point([lon, lat]);
@@ -176,19 +228,32 @@ window.addEventListener('click', (event) => {
         currentCountryLabel.material.dispose();
         currentCountryLabel = null;
       }
+      if (playNowButton) {
+        scene.remove(playNowButton);
+        playNowButton.material.map.dispose();
+        playNowButton.material.dispose();
+        playNowButton = null;
+      }
 
       currentCountryMesh = addCountryMeshToScene(country);
       currentCountryLabel = createCountryLabel(country.properties.ADMIN || country.properties.name);
+
+      playNowButton = createPlayNowButton();
 
       const countryName = country.properties.ADMIN || country.properties.name;
       const url = `https://www.google.com/maps/search/${encodeURIComponent(countryName)}`;
       window.open(url, "_blank", "width=600,height=400");
     } else {
       if (oceanAudio.paused) oceanAudio.play();
+      if (playNowButton) {
+        scene.remove(playNowButton);
+        playNowButton.material.map.dispose();
+        playNowButton.material.dispose();
+        playNowButton = null;
+      }
     }
   }
 });
-
 
 // === STARS BACKGROUND ===
 function createStars() {
@@ -209,7 +274,6 @@ function createStars() {
   scene.add(stars);
 }
 createStars();
-
 
 // === COMETS WITH GLOWING TAILS ===
 const comets = [];
@@ -268,7 +332,6 @@ function updateComets() {
   });
 }
 
-
 // === SHOOTING STARS ===
 const shootingStars = [];
 function createShootingStar() {
@@ -291,7 +354,6 @@ function updateShootingStars() {
     }
   });
 }
-
 
 // === METEOROIDS ===
 const meteoroids = [];
@@ -317,7 +379,6 @@ function updateMeteoroids() {
     rock.rotation.y += 0.01;
   });
 }
-
 
 function animate() {
   requestAnimationFrame(animate);
