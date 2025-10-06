@@ -189,14 +189,147 @@ window.addEventListener('click', (event) => {
   }
 });
 
+
+// === STARS BACKGROUND ===
+function createStars() {
+  const starGeometry = new THREE.BufferGeometry();
+  const starCount = 2000;
+  const starVertices = [];
+
+  for (let i = 0; i < starCount; i++) {
+    const x = (Math.random() - 0.5) * 2000;
+    const y = (Math.random() - 0.5) * 2000;
+    const z = (Math.random() - 0.5) * 2000;
+    starVertices.push(x, y, z);
+  }
+
+  starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+  const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.7 });
+  const stars = new THREE.Points(starGeometry, starMaterial);
+  scene.add(stars);
+}
+createStars();
+
+
+// === COMETS WITH GLOWING TAILS ===
+const comets = [];
+function createComet() {
+  const cometGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+  const cometMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const comet = new THREE.Mesh(cometGeometry, cometMaterial);
+
+  const glowGeometry = new THREE.SphereGeometry(0.6, 16, 16);
+  const glowMaterial = new THREE.MeshBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.5 });
+  const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+  comet.add(glow);
+
+  const trailLength = 20;
+  const trailPoints = [];
+  for (let i = 0; i < trailLength; i++) {
+    trailPoints.push(new THREE.Vector3(0, 0, 0));
+  }
+  const trailGeometry = new THREE.BufferGeometry().setFromPoints(trailPoints);
+  const trailMaterial = new THREE.LineBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.7 });
+  const trail = new THREE.Line(trailGeometry, trailMaterial);
+  comet.userData.trail = trail;
+  comet.add(trail);
+
+  comet.position.set(Math.random() * 100 - 50, Math.random() * 100 - 50, -100);
+  comet.userData.velocity = new THREE.Vector3(
+    (Math.random() - 0.5) * 0.2,
+    (Math.random() - 0.5) * 0.2,
+    0.6 + Math.random() * 0.5
+  );
+
+  scene.add(comet);
+  comets.push(comet);
+}
+setInterval(createComet, 6000);
+
+function updateComets() {
+  comets.forEach((comet, index) => {
+    comet.position.add(comet.userData.velocity);
+
+    const positions = comet.userData.trail.geometry.attributes.position.array;
+    for (let i = positions.length - 3; i > 0; i -= 3) {
+      positions[i] = positions[i - 3];
+      positions[i + 1] = positions[i - 2];
+      positions[i + 2] = positions[i - 1];
+    }
+    positions[0] = 0;
+    positions[1] = 0;
+    positions[2] = 0;
+    comet.userData.trail.geometry.attributes.position.needsUpdate = true;
+
+    if (comet.position.z > 50) {
+      scene.remove(comet);
+      comets.splice(index, 1);
+    }
+  });
+}
+
+
+// === SHOOTING STARS ===
+const shootingStars = [];
+function createShootingStar() {
+  const geom = new THREE.SphereGeometry(0.1, 8, 8);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffaa });
+  const star = new THREE.Mesh(geom, mat);
+  star.position.set(Math.random() * 100 - 50, Math.random() * 100 - 50, -50);
+  star.userData.velocity = new THREE.Vector3(-0.8, -0.5, 1.2);
+  scene.add(star);
+  shootingStars.push(star);
+}
+setInterval(createShootingStar, 8000);
+
+function updateShootingStars() {
+  shootingStars.forEach((star, index) => {
+    star.position.add(star.userData.velocity);
+    if (star.position.z > 50) {
+      scene.remove(star);
+      shootingStars.splice(index, 1);
+    }
+  });
+}
+
+
+// === METEOROIDS ===
+const meteoroids = [];
+function createMeteoroid() {
+  const geom = new THREE.IcosahedronGeometry(0.2 + Math.random() * 0.5, 1);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x888888 });
+  const rock = new THREE.Mesh(geom, mat);
+  rock.position.set(Math.random() * 200 - 100, Math.random() * 200 - 100, Math.random() * -200);
+  rock.userData.velocity = new THREE.Vector3(
+    (Math.random() - 0.5) * 0.02,
+    (Math.random() - 0.5) * 0.02,
+    0.05 + Math.random() * 0.05
+  );
+  scene.add(rock);
+  meteoroids.push(rock);
+}
+for (let i = 0; i < 50; i++) createMeteoroid();
+
+function updateMeteoroids() {
+  meteoroids.forEach(rock => {
+    rock.position.add(rock.userData.velocity);
+    rock.rotation.x += 0.01;
+    rock.rotation.y += 0.01;
+  });
+}
+
+
 function animate() {
   requestAnimationFrame(animate);
   globe.rotation.y += 0.0015;
 
-  // Keep label facing camera
   if (currentCountryLabel) {
     currentCountryLabel.lookAt(camera.position);
   }
+
+  updateComets();
+  updateShootingStars();
+  updateMeteoroids();
 
   renderer.render(scene, camera);
 }
