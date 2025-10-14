@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Country Jigsaw Puzzle</title>
+  <style>
+    body {
+      margin: 0;
+      background: #222;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+    .container {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      width: 100vw;
+    }
+    #puzzleCanvas {
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 0 24px #222;
+      cursor: grab;
+      margin-right: 32px;
+      margin-left: 32px;
+      position: relative;
+      z-index: 1;
+    }
+    #referenceCanvas {
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 0 24px #222;
+      margin-left: 32px;
+      margin-right: 32px;
+      z-index: 1;
+    }
+    h2 {
+      color: #fff;
+      text-align: center;
+      margin-top: 24px;
+      text-shadow: 0 2px 8px #222;
+      width: 100vw;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+    #confettiCanvas {
+      position: fixed;
+      left: 0;
+      top: 0;
+      pointer-events: none;
+      width: 100vw;
+      height: 100vh;
+      z-index: 10;
+    }
+    #yayMessage {
+      position: fixed;
+      left: 50%;
+      bottom: -60px;
+      transform: translateX(-50%);
+      background: #fff;
+      color: #222;
+      font-size: 1.3rem;
+      font-weight: bold;
+      padding: 10px 28px;
+      border-radius: 18px;
+      box-shadow: 0 8px 32px #222;
+      z-index: 20;
+      opacity: 0;
+      transition: bottom 0.7s cubic-bezier(.68,-0.55,.27,1.55), opacity 0.7s;
+      pointer-events: none;
+    }
+    #yayMessage.show {
+      bottom: 32px;
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <h2 id="countryName">Jigsaw Puzzle</h2>
+  <canvas id="confettiCanvas"></canvas>
+  <div class="container">
+    <canvas id="puzzleCanvas" width="480" height="480"></canvas>
+    <canvas id="referenceCanvas" width="200" height="200"></canvas>
+  </div>
+  <div id="yayMessage">Yay we did it!</div>
+  <audio id="tapSound" src="tap.mp3" preload="auto"></audio>
+  <audio id="popSound" src="pop.wav" preload="auto"></audio>
+  <script>
+    // --- Jigsaw constants ---
+    const ROWS = 3;
+    const COLS = 3;
+    const PIECE_SIZE = 160; // 480 / 3
+    const MIN_COUNTRY_PIXELS = 400; // Only include pieces with enough country pixels
+
+    let pieces = [];
+    let dragging = null;
+    let offsetX = 0, offsetY = 0;
+    let countryColor = "#ffd7a0";
+    let countryGeometry = null;
+    let puzzleCompleted = false;
+
+    // Tap and pop sounds
+    const tapAudio = document.getElementById('tapSound');
+    const popAudio = document.getElementById('popSound');
+
+    // --- Receive country data from sessionStorage ---
+    const puzzleData = sessionStorage.getItem('countryPuzzleData');
+    if (puzzleData) {
+      const data = JSON.parse(puzzleData);
+      countryGeometry = data.geometry;
+      countryColor = "#" + data.color.toString(16).padStart(6, "0");
+      document.getElementById('countryName').textContent = (data.name || "Jigsaw Puzzle") + " - Jigsaw";
+      initPuzzle();
+      drawReference();
+    }
+
+    // Dynamically scale country to fill puzzle canvas
+    function getCountryTransform(canvasSize = 480, pad = 32) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      countryGeometry.forEach(polygon => {
+        polygon.forEach(ring => {
+          ring.forEach(([lon, lat]) => {
+            minX = Math.min(minX, lon);
+            maxX = Math.max(maxX, lon);
+            minY = Math.min(minY, lat);
+            maxY = Math.max(maxY, lat);
+          });
+        });
+      });
+      // Add padding so country doesn't touch edges
+      const scale = Math.min(
+        (canvasSize - pad * 2) / (maxX - minX || 1),
+        (canvasSize - pad * 2) / (maxY - minY || 1)
+      );
+      const offsetX = pad - minX * scale;
+      const offsetY = pad - minY * scale;
+      return { scale, offsetX, offsetY };
+    }
+
+    function initPuzzle() {
+      pieces = [];
+      puzzleCompleted = false;
+      const { scale, offsetX, offsetY } = getCountryTransform();
+
+      // Rasterize country shape (Y axis flipped)
+      const hiddenCanvas = document.createElement('canvas');
+      hiddenCanvas.width = 480;
+      hiddenCanvas.height = 480;
+      const hctx = hiddenCanvas.getContext('2d');
+      hctx.clearRect(0,0,480,480);
+      hctx.save();
+      hctx.beginPath();
+      countryGeometry.forEach(polygon => {
+        polygon.forEach(ring => {
+          ring.forEach(([lon, lat], i) => {
+            const x = lon * scale + offsetX;
+            const y = 480 - (lat * scale + offsetY); // Flip Y
+            if (i === 0) hctx.moveTo(x, y);
+            else hctx.lineTo(x, y);
+          });
+        });
+      });
+      hctx.closePath();
+      hctx.fillStyle = countryColor;
+      hctx.fill();
+      hctx.restore();
+
+      // Split into grid pieces, only include pieces with enough country pixels
+      for (let row = 0; row < ROWS; row++) {
+        for (let col = 0; col < COLS; col++) {
+          // Create piece image
+          const pieceCanvas = document.createElement('canvas');
+          pieceCanvas.width = PIECE_SIZE;
+          pieceCanvas.height = PIECE_SIZE;
+          const pctx = pieceCanvas.getContext('2d');
+          pctx.save();
+          pctx.beginPath();
+          pctx.rect(0, 0, PIECE_SIZE, PIECE_SIZE);
+          pctx.clip();
+          pctx.drawImage(
+            hiddenCanvas,
+            col * PIECE_SIZE, row * PIECE_SIZE, PIECE_SIZE, PIECE_SIZE,
+            0, 0, PIECE_SIZE, PIECE_SIZE
+          );
+          pctx.restore();
+
+          // Check if this piece has enough visible country pixels
+          const imgData = pctx.getImageData(0, 0, PIECE_SIZE, PIECE_SIZE).data;
+          let countryPixels = 0;
+          for (let i = 0; i < imgData.length; i += 4) {
+            if (imgData[i+3] > 10) countryPixels++;
+          }
+
+          if (countryPixels >= MIN_COUNTRY_PIXELS) {
+            pieces.push({
+              row, col,
+              x: Math.random()*200+40,
+              y: Math.random()*200+40,
+              homeX: col*PIECE_SIZE,
+              homeY: row*PIECE_SIZE,
+              placed: false,
+              img: pieceCanvas
+            });
+          }
+        }
+      }
+      drawPuzzle();
+    }
+
+    function drawPuzzle() {
+      const canvas = document.getElementById('puzzleCanvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+
+      // Draw faded country shape for reference (in puzzle canvas)
+      const { scale, offsetX, offsetY } = getCountryTransform();
+      if (countryGeometry) {
+        ctx.save();
+        ctx.globalAlpha = 0.13;
+        ctx.beginPath();
+        countryGeometry.forEach(polygon => {
+          polygon.forEach(ring => {
+            ring.forEach(([lon, lat], i) => {
+              const x = lon * scale + offsetX;
+              const y = 480 - (lat * scale + offsetY);
+              if (i === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            });
+          });
+        });
+        ctx.closePath();
+        ctx.fillStyle = countryColor;
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Draw puzzle pieces and grid lines only for visible pieces and only if puzzle not completed
+      pieces.forEach(piece => {
+        ctx.save();
+        ctx.globalAlpha = piece.placed ? 1 : 0.85;
+        ctx.shadowColor = "#ffd700";
+        ctx.shadowBlur = piece.placed ? 16 : 6;
+        ctx.drawImage(piece.img, piece.x, piece.y, PIECE_SIZE, PIECE_SIZE);
+        // Only draw grid if not placed and puzzle not completed
+        if (!puzzleCompleted && !piece.placed) {
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "#fff";
+          ctx.strokeRect(piece.x, piece.y, PIECE_SIZE, PIECE_SIZE);
+        }
+        ctx.restore();
+      });
+    }
+
+    // --- Drag and drop logic ---
+    const puzzleCanvas = document.getElementById('puzzleCanvas');
+    puzzleCanvas.addEventListener('mousedown', function(e) {
+      if (puzzleCompleted) return;
+      const rect = puzzleCanvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      for (let i=pieces.length-1; i>=0; i--) {
+        const piece = pieces[i];
+        if (!piece.placed &&
+          mx >= piece.x && mx <= piece.x+PIECE_SIZE &&
+          my >= piece.y && my <= piece.y+PIECE_SIZE) {
+          dragging = piece;
+          offsetX = mx - piece.x;
+          offsetY = my - piece.y;
+          break;
+        }
+      }
+    });
+
+    puzzleCanvas.addEventListener('mousemove', function(e) {
+      if (dragging && !puzzleCompleted) {
+        const rect = puzzleCanvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        dragging.x = mx - offsetX;
+        dragging.y = my - offsetY;
+        drawPuzzle();
+      }
+    });
+
+    puzzleCanvas.addEventListener('mouseup', function(e) {
+      if (dragging && !puzzleCompleted) {
+        if (Math.abs(dragging.x - dragging.homeX) < 24 && Math.abs(dragging.y - dragging.homeY) < 24) {
+          dragging.x = dragging.homeX;
+          dragging.y = dragging.homeY;
+          dragging.placed = true;
+          tapAudio.currentTime = 0;
+          tapAudio.play();
+          if (pieces.every(p => p.placed)) {
+            puzzleCompleted = true;
+            drawPuzzle(); // redraw to hide grid lines
+            setTimeout(() => {
+              popAudio.currentTime = 0;
+              popAudio.play();
+              launchConfetti(25); // 25 seconds
+              showYayMessage();
+            }, 300);
+          }
+        }
+        dragging = null;
+        drawPuzzle();
+      }
+    });
+
+    puzzleCanvas.addEventListener('mouseleave', function() {
+      dragging = null;
+    });
+
+    // --- Reference country shape on right ---
+    function drawReference() {
+      const canvas = document.getElementById('referenceCanvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+
+      if (!countryGeometry) return;
+
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      countryGeometry.forEach(polygon => {
+        polygon.forEach(ring => {
+          ring.forEach(([lon, lat]) => {
+            minX = Math.min(minX, lon);
+            maxX = Math.max(maxX, lon);
+            minY = Math.min(minY, lat);
+            maxY = Math.max(maxY, lat);
+          });
+        });
+      });
+
+      // Scale and offset to fit reference canvas
+      const PAD = 16;
+      const scale = Math.min(
+        (200 - PAD * 2) / (maxX - minX || 1),
+        (200 - PAD * 2) / (maxY - minY || 1)
+      );
+      const offsetX = PAD - minX * scale;
+      const offsetY = PAD - minY * scale;
+
+      ctx.save();
+      ctx.beginPath();
+      countryGeometry.forEach(polygon => {
+        polygon.forEach(ring => {
+          ring.forEach(([lon, lat], i) => {
+            const x = lon * scale + offsetX;
+            const y = 200 - (lat * scale + offsetY); // Flip Y
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+        });
+      });
+      ctx.closePath();
+      ctx.fillStyle = countryColor;
+      ctx.shadowColor = "#ffd700";
+      ctx.shadowBlur = 12;
+      ctx.globalAlpha = 0.95;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#fff";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- Confetti Party Popper ---
+    const confettiCanvas = document.getElementById('confettiCanvas');
+    confettiCanvas.width = window.innerWidth;
+    confettiCanvas.height = window.innerHeight;
+
+    function launchConfetti(durationSeconds) {
+      const ctx = confettiCanvas.getContext('2d');
+      const colors = ['#ffd700', '#ff4081', '#40c4ff', '#69f0ae', '#fff176', '#ffab40', '#ab47bc'];
+      const W = confettiCanvas.width;
+      const H = confettiCanvas.height;
+      let confetti = [];
+      let frame = 0;
+      let startTime = Date.now();
+
+      function spawnConfetti() {
+        for (let i = 0; i < 8; i++) {
+          confetti.push({
+            x: (i < 4) ? 60 : W-60,
+            y: H/2 + (Math.random()-0.5)*80,
+            r: 8 + Math.random()*8,
+            color: colors[Math.floor(Math.random()*colors.length)],
+            vx: (i < 4) ? (2+Math.random()*4) : -(2+Math.random()*4),
+            vy: -4 + Math.random()*-2,
+            ay: 0.18 + Math.random()*0.05,
+            angle: Math.random()*2*Math.PI,
+            spin: (Math.random()-0.5)*0.2
+          });
+        }
+      }
+
+      function animateConfetti() {
+        ctx.clearRect(0,0,W,H);
+        confetti.forEach(c => {
+          ctx.save();
+          ctx.translate(c.x, c.y);
+          ctx.rotate(c.angle);
+          ctx.fillStyle = c.color;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, c.r, c.r/2, 0, 0, 2*Math.PI);
+          ctx.fill();
+          ctx.restore();
+          c.x += c.vx;
+          c.y += c.vy;
+          c.vy += c.ay;
+          c.angle += c.spin;
+        });
+        confetti = confetti.filter(c => c.y < H + 40);
+        if ((Date.now() - startTime) < durationSeconds * 1000 && frame % 10 === 0) {
+          spawnConfetti();
+        }
+        frame++;
+        if ((Date.now() - startTime) < durationSeconds * 1000) {
+          requestAnimationFrame(animateConfetti);
+        } else {
+          ctx.clearRect(0,0,W,H);
+        }
+      }
+      animateConfetti();
+    }
+
+    function showYayMessage() {
+      const yay = document.getElementById('yayMessage');
+      yay.classList.add('show');
+      setTimeout(() => {
+        yay.classList.remove('show');
+      }, 7000); // 7 seconds
+    }
+
+    window.addEventListener('resize', () => {
+      confettiCanvas.width = window.innerWidth;
+      confettiCanvas.height = window.innerHeight;
+    });
+  </script>
+</body>
+</html>
