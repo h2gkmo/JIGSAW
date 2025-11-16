@@ -16,7 +16,6 @@ This project demonstrates a dynamic “jigsaw / puzzle-style” interface using 
 - Click/tap sound effects for user interactions.  
 - An interactive flow: starting at `index.html`, then (optionally) `next.html` for further stages.  
 - Asset-rich — textures, audio, background videos to add visual and auditory polish.  
-- Easy to fork and customize: swap out assets and modify `main.js` logic to repurpose for your own interactive puzzle or experience.
 
 ## 🧪 Getting Started
 
@@ -33,7 +32,7 @@ This project demonstrates a dynamic “jigsaw / puzzle-style” interface using 
     - Adjust next.html if you want additional pages or flows.
 
 🧩 Directory Structure
-
+```
 JIGSAW/
 ├── data/              # JSON or other data files (if any)
 ├── textures/          # Image / video / texture assets
@@ -47,22 +46,7 @@ JIGSAW/
 ├── pop.wav            # Click/pop sound effect
 ├── tap.mp3            # Tap sound effect
 └── wave.m4a           # Additional audio ambient/feedback
-
-🤝 Contributing
-
-Contributions are welcome! If you’d like to suggest improvements or add new features:
-
-- Fork the repo.
-- Create a new branch: git checkout -b feature-yourFeatureName.
-- Commit your changes: git commit -m 'Add some feature'.
-- Push to your branch: git push origin feature-yourFeatureName.
-- Open a Pull Request and describe your changes.
-- Please ensure all interactive behaviour remains smooth and assets load correctly.
-
-📄 License
-
-This project is open source. You may use, modify and distribute the code and assets freely (unless specific assets are copyrighted).
-Include any license file here if you want (e.g., MIT License).
+```
 
 🧠 Ideas for Extension
 
@@ -72,5 +56,3 @@ Include any license file here if you want (e.g., MIT License).
 - Replace backgrounds dynamically based on user selection.
 - Integrate responsive design for mobile/touch-screens.
 - Enjoy exploring and expanding the JIGSAW experience!
-  
-Happy coding 🚀
